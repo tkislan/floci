@@ -428,7 +428,6 @@ public class S3Controller {
                     LOG.infov("Rerouting misplaced virtual-hosted PutObject to bucket {0}, key {1}", actualBucket, bucket);
                     return putObject(actualBucket, bucket,
                             httpHeaders.getHeaderString("Content-Type"),
-                            httpHeaders.getHeaderString("Content-Encoding"),
                             httpHeaders.getHeaderString("x-amz-content-sha256"),
                             httpHeaders.getHeaderString("x-amz-copy-source"),
                             httpHeaders.getHeaderString("x-amz-tagging"),
@@ -836,7 +835,6 @@ public class S3Controller {
     public Response putObject(@PathParam("bucket") String bucket,
                               @PathParam("key") String key,
                               @HeaderParam("Content-Type") String contentType,
-                              @HeaderParam("Content-Encoding") String contentEncoding,
                               @HeaderParam("x-amz-content-sha256") String contentSha256,
                               @HeaderParam("x-amz-copy-source") String copySource,
                               @HeaderParam("x-amz-tagging") String tagging,
@@ -901,6 +899,8 @@ public class S3Controller {
                 return handlePutObjectAnnotation(bucket, key, readWholeBody(body), uriInfo, httpHeaders);
             }
 
+            // Not @HeaderParam, which keeps only the first header line and would miss aws-chunked on a later one.
+            String contentEncoding = httpHeaders.getHeaderString("Content-Encoding");
             if (uploadId != null && partNumber != null) {
                 s3Service.authorizeObjectWrite(bucket, key, "s3:PutObject", authorization);
                 int parsedPartNumber = PartRange.parseUploadPartNumber(partNumber);
@@ -965,6 +965,8 @@ public class S3Controller {
                             .withLegalHoldStatus(lock.legalHoldStatus())
                             .withContentDisposition(contentDisposition)
                             .withCacheControl(cacheControl)
+                            .withContentLanguage(httpHeaders.getHeaderString("Content-Language"))
+                            .withExpires(httpHeaders.getHeaderString("Expires"))
                             .withServerSideEncryption(serverSideEncryption)
                             .withSseKmsKeyId(sseKmsKeyId)
                             .withSseCustomerAlgorithm(sseCustomerAlgorithm)
@@ -1654,6 +1656,8 @@ public class S3Controller {
                                 .withContentEncoding(toPersistedContentEncoding(
                                         httpHeaders.getHeaderString("Content-Encoding")))
                                 .withCacheControl(httpHeaders.getHeaderString("Cache-Control"))
+                                .withContentLanguage(httpHeaders.getHeaderString("Content-Language"))
+                                .withExpires(httpHeaders.getHeaderString("Expires"))
                                 .withServerSideEncryption(httpHeaders.getHeaderString("x-amz-server-side-encryption"))
                                 .withSseKmsKeyId(httpHeaders.getHeaderString(
                                         "x-amz-server-side-encryption-aws-kms-key-id"))
@@ -3149,11 +3153,13 @@ public class S3Controller {
             resp.header("x-amz-server-side-encryption-aws-kms-key-id", obj.getSseKmsKeyId());
         }
         appendSseCustomerHeaders(resp, obj);
-        if (overrides.contentLanguage() != null) {
-            resp.header("Content-Language", overrides.contentLanguage());
+        String contentLanguage = overrides.contentLanguage() != null ? overrides.contentLanguage() : obj.getContentLanguage();
+        if (contentLanguage != null) {
+            resp.header("Content-Language", contentLanguage);
         }
-        if (overrides.expires() != null) {
-            resp.header("Expires", overrides.expires());
+        String expires = overrides.expires() != null ? overrides.expires() : obj.getExpires();
+        if (expires != null) {
+            resp.header("Expires", expires);
         }
         if (obj.getMetadata() != null) {
             for (Map.Entry<String, String> entry : obj.getMetadata().entrySet()) {
@@ -3253,6 +3259,8 @@ public class S3Controller {
                         .withContentEncoding(copyContentEncoding)
                         .withContentDisposition(copyContentDisposition)
                         .withCacheControl(copyCacheControl)
+                        .withContentLanguage(httpHeaders.getHeaderString("Content-Language"))
+                        .withExpires(httpHeaders.getHeaderString("Expires"))
                         .withServerSideEncryption(copyServerSideEncryption)
                         .withSseKmsKeyId(copySseKmsKeyId)
                         .withSseCustomerAlgorithm(httpHeaders.getHeaderString("x-amz-server-side-encryption-customer-algorithm"))
@@ -4020,7 +4028,12 @@ public class S3Controller {
         }
 
         S3Object obj = s3Service.postObject(bucket, key, fileData, objectContentType,
-                metadata.isEmpty() ? null : metadata);
+                metadata.isEmpty() ? null : metadata,
+                new PutObjectOptions()
+                        .withCacheControl(lcFields.get("cache-control"))
+                        .withContentDisposition(lcFields.get("content-disposition"))
+                        .withContentEncoding(lcFields.get("content-encoding"))
+                        .withExpires(lcFields.get("expires")));
         LOG.infov("Presigned POST upload: {0}/{1} ({2} bytes)", bucket, key, fileData.length);
 
         String xml = new XmlBuilder()

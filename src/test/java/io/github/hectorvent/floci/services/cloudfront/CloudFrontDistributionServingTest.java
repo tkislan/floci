@@ -250,6 +250,8 @@ class CloudFrontDistributionServingTest {
                         .withContentEncoding("identity")
                         .withContentDisposition("inline")
                         .withCacheControl("public, max-age=60")
+                        .withContentLanguage("de-DE")
+                        .withExpires("Tue, 01 Dec 2099 16:00:00 GMT")
                         .withServerSideEncryption("AES256")
                         .withChecksumAlgorithm("SHA256"));
 
@@ -271,6 +273,8 @@ class CloudFrontDistributionServingTest {
                 .header("Cache-Control", equalTo("public, max-age=60"))
                 .header("Content-Encoding", equalTo("identity"))
                 .header("Content-Disposition", equalTo("inline"))
+                .header("Content-Language", equalTo("de-DE"))
+                .header("Expires", equalTo("Tue, 01 Dec 2099 16:00:00 GMT"))
                 .header("x-amz-storage-class", equalTo("STANDARD_IA"))
                 .header("x-amz-meta-source", equalTo("origin"))
                 .header("x-amz-server-side-encryption", nullValue())

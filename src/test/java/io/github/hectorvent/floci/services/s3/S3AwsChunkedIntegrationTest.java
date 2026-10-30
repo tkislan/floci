@@ -2,6 +2,8 @@ package io.github.hectorvent.floci.services.s3;
 
 import io.github.hectorvent.floci.services.s3.model.S3Checksum;
 import io.quarkus.test.junit.QuarkusTest;
+import io.restassured.config.DecoderConfig;
+import io.restassured.config.RestAssuredConfig;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -16,6 +18,8 @@ import static org.hamcrest.Matchers.not;
 class S3AwsChunkedIntegrationTest {
 
     private static final String STREAMING_UNSIGNED = "STREAMING-UNSIGNED-PAYLOAD-TRAILER";
+    private static final RestAssuredConfig NO_CONTENT_DECODING = RestAssuredConfig.config()
+            .decoderConfig(DecoderConfig.decoderConfig().noContentDecoders());
     private static final String INCOMPLETE_BODY_MESSAGE =
             "You did not provide the number of bytes specified by the Content-Length HTTP header.";
     private static final String ENTITY_TOO_LARGE_MESSAGE = "Your proposed upload exceeds the maximum allowed size";
@@ -551,6 +555,114 @@ class S3AwsChunkedIntegrationTest {
             .statusCode(200);
 
         given().when().get("/" + bucket + "/object.txt").then().statusCode(200).body(equalTo("plain-content"));
+    }
+
+    @Test
+    void putObject_awsChunkedOnASecondContentEncodingLine_decodesTheBodyAndStoresTheOtherCoding() {
+        String bucket = createBucket("chunked-split-header");
+
+        given()
+            .header("Content-Encoding", "gzip")
+            .header("Content-Encoding", "aws-chunked")
+            .body("5\r\nhello\r\n0\r\n\r\n")
+        .when()
+            .put("/" + bucket + "/object.txt")
+        .then()
+            .statusCode(200);
+
+        given()
+            .config(NO_CONTENT_DECODING)
+        .when()
+            .get("/" + bucket + "/object.txt")
+        .then()
+            .statusCode(200)
+            .header("Content-Encoding", equalTo("gzip"))
+            .body(equalTo("hello"));
+    }
+
+    @Test
+    void uploadPart_awsChunkedOnASecondContentEncodingLine_decodesThePart() {
+        String bucket = createBucket("chunked-part-split-header");
+        String uploadId = initiateUploadWithContentEncoding(bucket, "br");
+
+        String eTag = given()
+            .header("Content-Encoding", "gzip")
+            .header("Content-Encoding", "aws-chunked")
+            .body("5\r\nhello\r\n0\r\n\r\n")
+        .when()
+            .put("/" + bucket + "/object.bin?partNumber=1&uploadId=" + uploadId)
+        .then()
+            .statusCode(200)
+            .extract().header("ETag");
+
+        assertCompletedAsHelloWithContentEncoding(bucket, uploadId, eTag, "br");
+    }
+
+    @Test
+    void uploadPart_gzipAndAwsChunkedWithAStreamingSignedPayload_decodesThePartAndKeepsTheUploadsEncoding() {
+        String bucket = createBucket("chunked-part-signed");
+        String uploadId = initiateUploadWithContentEncoding(bucket, "br");
+
+        String eTag = given()
+            .header("x-amz-content-sha256", "STREAMING-AWS4-HMAC-SHA256-PAYLOAD")
+            .header("Content-Encoding", "gzip,aws-chunked")
+            .header("x-amz-decoded-content-length", "5")
+            .body("5;chunk-signature=abc\r\nhello\r\n0;chunk-signature=def\r\n\r\n")
+        .when()
+            .put("/" + bucket + "/object.bin?partNumber=1&uploadId=" + uploadId)
+        .then()
+            .statusCode(200)
+            .extract().header("ETag");
+
+        assertCompletedAsHelloWithContentEncoding(bucket, uploadId, eTag, "br");
+    }
+
+    @Test
+    void uploadPart_gzipAndAwsChunkedWithoutAStreamingPayload_decodesThePartAndKeepsTheUploadsEncoding() {
+        String bucket = createBucket("chunked-part-unsigned");
+        String uploadId = initiateUploadWithContentEncoding(bucket, "br");
+
+        String eTag = given()
+            .header("Content-Encoding", "gzip,aws-chunked")
+            .body("5\r\nhello\r\n0\r\n\r\n")
+        .when()
+            .put("/" + bucket + "/object.bin?partNumber=1&uploadId=" + uploadId)
+        .then()
+            .statusCode(200)
+            .extract().header("ETag");
+
+        assertCompletedAsHelloWithContentEncoding(bucket, uploadId, eTag, "br");
+    }
+
+    private static String initiateUploadWithContentEncoding(String bucket, String contentEncoding) {
+        return given()
+            .header("Content-Encoding", contentEncoding)
+        .when()
+            .post("/" + bucket + "/object.bin?uploads")
+        .then()
+            .statusCode(200)
+            .extract().xmlPath().getString("InitiateMultipartUploadResult.UploadId");
+    }
+
+    private static void assertCompletedAsHelloWithContentEncoding(String bucket, String uploadId, String eTag,
+                                                                  String contentEncoding) {
+        given()
+            .contentType("application/xml")
+            .body("<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>" + eTag
+                    + "</ETag></Part></CompleteMultipartUpload>")
+        .when()
+            .post("/" + bucket + "/object.bin?uploadId=" + uploadId)
+        .then()
+            .statusCode(200);
+
+        given()
+            .config(NO_CONTENT_DECODING)
+        .when()
+            .get("/" + bucket + "/object.bin")
+        .then()
+            .statusCode(200)
+            .header("Content-Encoding", equalTo(contentEncoding))
+            .body(equalTo("hello"));
     }
 
     private static String createBucket(String prefix) {

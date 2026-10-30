@@ -714,6 +714,35 @@ class S3PresignedPostIntegrationTest {
     }
 
     @Test
+    @Order(98)
+    void presignedPostStoresObjectHeaderFields() {
+        String key = "uploads/with-headers.txt";
+
+        given()
+            .multiPart("key", key)
+            .multiPart("Content-Type", "text/plain")
+            .multiPart("Cache-Control", "max-age=300")
+            .multiPart("Content-Disposition", "attachment; filename=\"report.txt\"")
+            .multiPart("Content-Encoding", "gzip")
+            .multiPart("Expires", "Tue, 01 Dec 2099 16:00:00 GMT")
+            .multiPart("file", "with-headers.txt", "header test".getBytes(StandardCharsets.UTF_8), "text/plain")
+        .when()
+            .post("/" + BUCKET)
+        .then()
+            .statusCode(204);
+
+        given()
+        .when()
+            .head("/" + BUCKET + "/" + key)
+        .then()
+            .statusCode(200)
+            .header("Cache-Control", equalTo("max-age=300"))
+            .header("Content-Disposition", equalTo("attachment; filename=\"report.txt\""))
+            .header("Content-Encoding", equalTo("gzip"))
+            .header("Expires", equalTo("Tue, 01 Dec 2099 16:00:00 GMT"));
+    }
+
+    @Test
     @Order(100)
     void cleanupBucket() {
         // Delete all objects
@@ -727,6 +756,7 @@ class S3PresignedPostIntegrationTest {
         given().delete("/" + BUCKET + "/uploads/prefix-test.txt");
         given().delete("/" + BUCKET + "/uploads/capital-p-ok.txt");
         given().delete("/" + BUCKET + "/uploads/with-metadata.txt");
+        given().delete("/" + BUCKET + "/uploads/with-headers.txt");
 
         given()
         .when()

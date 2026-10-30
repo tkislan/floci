@@ -1951,6 +1951,109 @@ class S3IntegrationTest {
         given().delete("/content-disposition-bucket");
     }
 
+    // --- Content-Language and Expires preservation ---
+
+    @Test
+    @Order(213)
+    void contentLanguageAndExpiresAreReturnedOnGetAndHead() {
+        String bucket = "content-language-bucket";
+        given().put("/" + bucket).then().statusCode(200);
+
+        given()
+            .contentType("text/plain")
+            .header("Content-Language", "de-DE")
+            .header("Expires", "Tue, 01 Dec 2099 16:00:00 GMT")
+            .body("sprachinhalt")
+        .when()
+            .put("/" + bucket + "/language.txt")
+        .then()
+            .statusCode(200);
+
+        given()
+        .when()
+            .get("/" + bucket + "/language.txt")
+        .then()
+            .statusCode(200)
+            .header("Content-Language", equalTo("de-DE"))
+            .header("Expires", equalTo("Tue, 01 Dec 2099 16:00:00 GMT"));
+
+        given()
+        .when()
+            .head("/" + bucket + "/language.txt")
+        .then()
+            .statusCode(200)
+            .header("Content-Language", equalTo("de-DE"))
+            .header("Expires", equalTo("Tue, 01 Dec 2099 16:00:00 GMT"));
+
+        given().delete("/" + bucket + "/language.txt");
+        given().delete("/" + bucket);
+    }
+
+    @Test
+    @Order(214)
+    void expiresIsReturnedAsSentWithoutBeingParsed() {
+        String bucket = "raw-expires-bucket";
+        given().put("/" + bucket).then().statusCode(200);
+
+        given()
+            .contentType("text/plain")
+            .header("Expires", "2023-11-01")
+            .body("raw-expires")
+        .when()
+            .put("/" + bucket + "/raw.txt")
+        .then()
+            .statusCode(200);
+
+        given()
+        .when()
+            .head("/" + bucket + "/raw.txt")
+        .then()
+            .statusCode(200)
+            .header("Expires", equalTo("2023-11-01"));
+
+        given().delete("/" + bucket + "/raw.txt");
+        given().delete("/" + bucket);
+    }
+
+    @Test
+    @Order(215)
+    void copyObjectReplaceTakesContentLanguageAndExpiresFromTheRequest() {
+        String bucket = "content-language-copy-bucket";
+        given().put("/" + bucket).then().statusCode(200);
+        given()
+            .contentType("text/plain")
+            .header("Content-Language", "de-DE")
+            .header("Expires", "Tue, 01 Dec 2099 16:00:00 GMT")
+            .body("sprachinhalt")
+        .when()
+            .put("/" + bucket + "/source.txt")
+        .then()
+            .statusCode(200);
+
+        given()
+            .header("x-amz-copy-source", "/" + bucket + "/source.txt")
+            .header("x-amz-metadata-directive", "REPLACE")
+            .header("Content-Language", "fr-FR")
+            .header("Expires", "Fri, 01 Jan 2100 00:00:00 GMT")
+        .when()
+            .put("/" + bucket + "/replaced.txt")
+        .then()
+            .statusCode(200)
+            .body(containsString("CopyObjectResult"));
+
+        given()
+        .when()
+            .head("/" + bucket + "/replaced.txt")
+        .then()
+            .statusCode(200)
+            .header("Content-Language", equalTo("fr-FR"))
+            .header("Expires", equalTo("Fri, 01 Jan 2100 00:00:00 GMT"));
+
+        given().delete("/" + bucket + "/source.txt");
+        given().delete("/" + bucket + "/replaced.txt");
+        given().delete("/" + bucket);
+    }
+
     // --- Server-Side Encryption header preservation ---
 
     @Test

@@ -13,6 +13,8 @@ public class CopyObjectOptions {
     private String contentEncoding;
     private String contentDisposition;
     private String cacheControl;
+    private String contentLanguage;
+    private String expires;
     private String serverSideEncryption;
     private String sseKmsKeyId;
     private String sseCustomerAlgorithm;
@@ -65,6 +67,12 @@ public class CopyObjectOptions {
 
     public String getCacheControl() { return cacheControl; }
     public CopyObjectOptions withCacheControl(String cacheControl) { this.cacheControl = cacheControl; return this; }
+
+    public String getContentLanguage() { return contentLanguage; }
+    public CopyObjectOptions withContentLanguage(String contentLanguage) { this.contentLanguage = contentLanguage; return this; }
+
+    public String getExpires() { return expires; }
+    public CopyObjectOptions withExpires(String expires) { this.expires = expires; return this; }
 
     public String getServerSideEncryption() { return serverSideEncryption; }
     public CopyObjectOptions withServerSideEncryption(String serverSideEncryption) { this.serverSideEncryption = serverSideEncryption; return this; }

@@ -43,6 +43,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ListPartsRequest;
 import software.amazon.awssdk.services.s3.model.ListPartsResponse;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.Permission;
@@ -58,7 +59,9 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.zip.GZIPOutputStream;
 
 import static org.assertj.core.api.Assertions.*;
@@ -708,6 +711,77 @@ class S3Test {
             assertThat(head.contentType()).isEqualTo("text/plain");
         } finally {
             deleteObjectAndBucketQuietly(bucket, key);
+        }
+    }
+
+    @Test
+    @Order(37)
+    void putObjectKeepsContentLanguageAndExpires() {
+        String bucket = TestFixtures.uniqueName("language-bucket");
+        String key = "language.txt";
+        s3.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
+        try {
+            s3.putObject(PutObjectRequest.builder()
+                            .bucket(bucket).key(key)
+                            .contentLanguage("de-DE")
+                            .expires(Instant.parse("2099-12-01T16:00:00Z"))
+                            .build(),
+                    RequestBody.fromString("sprachinhalt"));
+
+            HeadObjectResponse head = s3.headObject(HeadObjectRequest.builder()
+                    .bucket(bucket).key(key).build());
+
+            assertThat(head.contentLanguage()).isEqualTo("de-DE");
+            assertThat(head.expiresString()).isEqualTo("Tue, 01 Dec 2099 16:00:00 GMT");
+        } finally {
+            deleteObjectAndBucketQuietly(bucket, key);
+        }
+    }
+
+    @Test
+    @Order(38)
+    void copyObjectReplaceDropsTheHeadersTheRequestLeavesOut() {
+        String bucket = TestFixtures.uniqueName("copy-replace-bucket");
+        String source = "source.txt";
+        String copy = "copy.txt";
+        s3.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
+        try {
+            s3.putObject(PutObjectRequest.builder()
+                            .bucket(bucket).key(source)
+                            .contentType("text/plain")
+                            .contentEncoding("gzip")
+                            .cacheControl("max-age=60")
+                            .contentDisposition("inline")
+                            .contentLanguage("de-DE")
+                            .expires(Instant.parse("2099-12-01T16:00:00Z"))
+                            .metadata(Map.of("origin", "source"))
+                            .build(),
+                    RequestBody.fromString("content"));
+
+            s3.copyObject(CopyObjectRequest.builder()
+                    .sourceBucket(bucket).sourceKey(source)
+                    .destinationBucket(bucket).destinationKey(copy)
+                    .metadataDirective(MetadataDirective.REPLACE)
+                    .metadata(Map.of("stage", "copied"))
+                    .build());
+
+            HeadObjectResponse head = s3.headObject(HeadObjectRequest.builder()
+                    .bucket(bucket).key(copy).build());
+
+            assertThat(head.contentType()).isEqualTo("application/octet-stream");
+            assertThat(head.contentEncoding()).isNull();
+            assertThat(head.cacheControl()).isNull();
+            assertThat(head.contentDisposition()).isNull();
+            assertThat(head.contentLanguage()).isNull();
+            assertThat(head.expiresString()).isNull();
+            assertThat(head.metadata()).containsExactly(entry("stage", "copied"));
+        } finally {
+            try {
+                s3.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(copy).build());
+            } catch (Exception ignored) {
+                // cleanup only: a failed delete must not mask the assertion
+            }
+            deleteObjectAndBucketQuietly(bucket, source);
         }
     }
 

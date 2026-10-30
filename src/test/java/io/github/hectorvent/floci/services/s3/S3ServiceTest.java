@@ -12,6 +12,7 @@ import io.github.hectorvent.floci.services.lambda.model.InvocationType;
 import io.github.hectorvent.floci.services.lambda.model.LambdaFunction;
 import io.github.hectorvent.floci.services.s3.model.Bucket;
 import io.github.hectorvent.floci.services.s3.model.ChecksumType;
+import io.github.hectorvent.floci.services.s3.model.CopyObjectOptions;
 import io.github.hectorvent.floci.services.s3.model.FilterRule;
 import io.github.hectorvent.floci.services.s3.model.GetObjectAttributesResult;
 import io.github.hectorvent.floci.services.s3.model.LambdaNotification;
@@ -684,6 +685,62 @@ class S3ServiceTest {
         assertEquals("application/json", copy.getContentType());
         assertEquals("STANDARD_IA", copy.getStorageClass());
         assertEquals("dest", copy.getMetadata().get("owner"));
+    }
+
+    @Test
+    void copyObjectWithoutADirectiveKeepsContentLanguageAndExpires() {
+        s3Service.createBucket("test-bucket", "us-east-1");
+        s3Service.createBucket("dest-bucket", "us-east-1");
+        s3Service.putObject("test-bucket", "source.txt", "content".getBytes(StandardCharsets.UTF_8),
+                "text/plain", null, new PutObjectOptions()
+                        .withContentLanguage("de-DE")
+                        .withExpires("Tue, 01 Dec 2099 16:00:00 GMT"));
+
+        S3Object copy = s3Service.copyObject("test-bucket", "source.txt", "dest-bucket", "copy.txt");
+
+        assertEquals("de-DE", copy.getContentLanguage());
+        assertEquals("Tue, 01 Dec 2099 16:00:00 GMT", copy.getExpires());
+    }
+
+    @Test
+    void copyObjectReplaceTakesContentLanguageAndExpiresFromTheRequest() {
+        s3Service.createBucket("test-bucket", "us-east-1");
+        s3Service.putObject("test-bucket", "source.txt", "content".getBytes(StandardCharsets.UTF_8),
+                "text/plain", null, new PutObjectOptions()
+                        .withContentLanguage("de-DE")
+                        .withExpires("Tue, 01 Dec 2099 16:00:00 GMT"));
+
+        S3Object copy = s3Service.copyObject("test-bucket", "source.txt", "test-bucket", "copy.txt",
+                new CopyObjectOptions()
+                        .withMetadataDirective("REPLACE")
+                        .withContentLanguage("fr-FR")
+                        .withExpires("Fri, 01 Jan 2100 00:00:00 GMT"));
+
+        assertEquals("fr-FR", copy.getContentLanguage());
+        assertEquals("Fri, 01 Jan 2100 00:00:00 GMT", copy.getExpires());
+    }
+
+    @Test
+    void copyObjectReplaceDropsTheHeadersTheRequestLeavesOut() {
+        s3Service.createBucket("test-bucket", "us-east-1");
+        s3Service.putObject("test-bucket", "source.txt", "content".getBytes(StandardCharsets.UTF_8),
+                "text/plain", Map.of("owner", "source"), new PutObjectOptions()
+                        .withContentEncoding("gzip")
+                        .withCacheControl("max-age=60")
+                        .withContentDisposition("inline")
+                        .withContentLanguage("de-DE")
+                        .withExpires("Tue, 01 Dec 2099 16:00:00 GMT"));
+
+        S3Object copy = s3Service.copyObject("test-bucket", "source.txt", "test-bucket", "copy.txt",
+                new CopyObjectOptions().withMetadataDirective("REPLACE"));
+
+        assertEquals("application/octet-stream", copy.getContentType());
+        assertNull(copy.getContentEncoding());
+        assertNull(copy.getCacheControl());
+        assertNull(copy.getContentDisposition());
+        assertNull(copy.getContentLanguage());
+        assertNull(copy.getExpires());
+        assertEquals(Map.of(), copy.getMetadata());
     }
 
     @Test
