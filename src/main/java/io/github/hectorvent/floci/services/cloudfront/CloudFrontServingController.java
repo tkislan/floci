@@ -1400,6 +1400,8 @@ public class CloudFrontServingController {
         putHeader(headers, "Cache-Control", object.getCacheControl());
         putHeader(headers, "Content-Encoding", object.getContentEncoding());
         putHeader(headers, "Content-Disposition", object.getContentDisposition());
+        putHeader(headers, "Content-Language", object.getContentLanguage());
+        putHeader(headers, "Expires", object.getExpires());
         putHeader(headers, "x-amz-storage-class", object.getStorageClass());
         if (object.getMetadata() != null) {
             object.getMetadata().forEach((name, value) ->

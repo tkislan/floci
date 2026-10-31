@@ -786,11 +786,6 @@ public class S3Service implements Resettable, ResourceProvider {
     }
 
     public S3Object postObject(String bucketName, String key, byte[] data,
-                               String contentType, Map<String, String> metadata) {
-        return postObject(bucketName, key, data, contentType, metadata, new PutObjectOptions());
-    }
-
-    public S3Object postObject(String bucketName, String key, byte[] data,
                                String contentType, Map<String, String> metadata, PutObjectOptions options) {
         return createObject(bucketName, key, data, contentType, metadata, options, "ObjectCreated:Post");
     }
@@ -940,6 +935,10 @@ public class S3Service implements Resettable, ResourceProvider {
         object.setContentEncoding(effectiveOptions.getContentEncoding());
         object.setContentDisposition(effectiveOptions.getContentDisposition());
         object.setCacheControl(effectiveOptions.getCacheControl());
+        object.setContentLanguage(effectiveOptions.getContentLanguage());
+        // A blank Expires is not a date: botocore and the JS SDK v3 fail to read an object that returns one.
+        String expires = effectiveOptions.getExpires();
+        object.setExpires(expires == null || expires.isBlank() ? null : expires);
         object.setServerSideEncryption(normalizedServerSideEncryption);
         object.setSseKmsKeyId("aws:kms".equals(normalizedServerSideEncryption)
                 ? effectiveOptions.getSseKmsKeyId()
@@ -4632,9 +4631,10 @@ public class S3Service implements Resettable, ResourceProvider {
 
     /**
      * Starts a multipart upload of an object that gets {@code objectOptions} when it completes, as a
-     * PutObject takes them: its storage class, content encoding, cache control, encryption, checksum
-     * algorithm, canned ACL or grants, tags and Object Lock settings. The ACL is checked here, so one
-     * S3 refuses fails the upload's creation rather than its completion.
+     * PutObject takes them: its storage class, content encoding, cache control, content language,
+     * expires, encryption, checksum algorithm, canned ACL or grants, tags and Object Lock settings.
+     * The ACL is checked here, so one S3 refuses fails the upload's creation rather than its
+     * completion.
      */
     public MultipartUpload initiateMultipartUpload(String bucket, String key, String contentType,
                                                    Map<String, String> metadata, String checksumType,
@@ -4675,6 +4675,8 @@ public class S3Service implements Resettable, ResourceProvider {
             upload.setContentDisposition(contentDisposition);
             upload.setContentEncoding(objectOptions.getContentEncoding());
             upload.setCacheControl(objectOptions.getCacheControl());
+            upload.setContentLanguage(objectOptions.getContentLanguage());
+            upload.setExpires(objectOptions.getExpires());
             upload.setServerSideEncryption(normalizedServerSideEncryption);
             upload.setSseKmsKeyId("aws:kms".equals(normalizedServerSideEncryption) ? sseKmsKeyId : null);
             if (customerKey != null) {
@@ -5152,6 +5154,8 @@ public class S3Service implements Resettable, ResourceProvider {
                                     .withContentDisposition(upload.getContentDisposition())
                                     .withContentEncoding(upload.getContentEncoding())
                                     .withCacheControl(upload.getCacheControl())
+                                    .withContentLanguage(upload.getContentLanguage())
+                                    .withExpires(upload.getExpires())
                                     .withServerSideEncryption(upload.getServerSideEncryption())
                                     .withSseKmsKeyId(upload.getSseKmsKeyId())
                                     .withAcl(upload.getAcl())
@@ -7376,6 +7380,8 @@ public class S3Service implements Resettable, ResourceProvider {
         copy.setContentEncoding(source.getContentEncoding());
         copy.setContentDisposition(source.getContentDisposition());
         copy.setCacheControl(source.getCacheControl());
+        copy.setContentLanguage(source.getContentLanguage());
+        copy.setExpires(source.getExpires());
         copy.setServerSideEncryption(source.getServerSideEncryption());
         copy.setSseKmsKeyId(source.getSseKmsKeyId());
         copy.setSseCustomerAlgorithm(source.getSseCustomerAlgorithm());
@@ -8249,21 +8255,29 @@ public class S3Service implements Resettable, ResourceProvider {
             metadata.putAll(effectiveOptions.getReplacementMetadata());
         }
 
-        String effectiveContentType = replaceMetadata && effectiveOptions.getContentType() != null
+        // Under REPLACE, S3 takes these headers only from the request: one the request leaves out is
+        // dropped rather than copied from the source, and a missing Content-Type becomes the default.
+        String effectiveContentType = replaceMetadata
                 ? effectiveOptions.getContentType()
                 : source.getContentType();
         String effectiveStorageClass = effectiveOptions.getStorageClass() != null
                 ? effectiveOptions.getStorageClass()
                 : source.getStorageClass();
-        String effectiveContentEncoding = replaceMetadata && effectiveOptions.getContentEncoding() != null
+        String effectiveContentEncoding = replaceMetadata
                 ? effectiveOptions.getContentEncoding()
                 : source.getContentEncoding();
-        String effectiveContentDisposition = replaceMetadata && effectiveOptions.getContentDisposition() != null
+        String effectiveContentDisposition = replaceMetadata
                 ? effectiveOptions.getContentDisposition()
                 : source.getContentDisposition();
-        String effectiveCacheControl = replaceMetadata && effectiveOptions.getCacheControl() != null
+        String effectiveCacheControl = replaceMetadata
                 ? effectiveOptions.getCacheControl()
                 : source.getCacheControl();
+        String effectiveContentLanguage = replaceMetadata
+                ? effectiveOptions.getContentLanguage()
+                : source.getContentLanguage();
+        String effectiveExpires = replaceMetadata
+                ? effectiveOptions.getExpires()
+                : source.getExpires();
         String effectiveServerSideEncryption = destinationCustomerKey != null
                 ? null
                 : (normalizedServerSideEncryption != null ? normalizedServerSideEncryption : source.getServerSideEncryption());
@@ -8327,8 +8341,9 @@ public class S3Service implements Resettable, ResourceProvider {
                 }
                 result[0] = storeObjectCopy(destBucket, destKey, body, metadata,
                         effectiveContentType, effectiveStorageClass, effectiveContentEncoding,
-                        effectiveContentDisposition, effectiveCacheControl, effectiveServerSideEncryption,
-                        effectiveSseKmsKeyId, effectiveOptions, copyChecksumAlgorithm, effectiveTags);
+                        effectiveContentDisposition, effectiveCacheControl, effectiveContentLanguage,
+                        effectiveExpires, effectiveServerSideEncryption, effectiveSseKmsKeyId, effectiveOptions,
+                        copyChecksumAlgorithm, effectiveTags);
                 if (copyAnnotations) {
                     restoreAnnotations(sourceAnnotations, destBucket, destKey, result[0]);
                 }
@@ -8352,8 +8367,9 @@ public class S3Service implements Resettable, ResourceProvider {
                         "The specified bucket does not exist.", 404))) {
             result[0] = storeObjectCopy(destBucket, destKey, body, metadata,
                     effectiveContentType, effectiveStorageClass, effectiveContentEncoding,
-                    effectiveContentDisposition, effectiveCacheControl, effectiveServerSideEncryption,
-                    effectiveSseKmsKeyId, effectiveOptions, copyChecksumAlgorithm, effectiveTags);
+                    effectiveContentDisposition, effectiveCacheControl, effectiveContentLanguage,
+                    effectiveExpires, effectiveServerSideEncryption, effectiveSseKmsKeyId, effectiveOptions,
+                    copyChecksumAlgorithm, effectiveTags);
             if (copyAnnotations) {
                 restoreAnnotations(sourceAnnotations, destBucket, destKey, result[0]);
             }
@@ -8368,7 +8384,8 @@ public class S3Service implements Resettable, ResourceProvider {
                                      Map<String, String> metadata,
                                      String effectiveContentType, String effectiveStorageClass,
                                      String effectiveContentEncoding, String effectiveContentDisposition,
-                                     String effectiveCacheControl, String effectiveServerSideEncryption,
+                                     String effectiveCacheControl, String effectiveContentLanguage,
+                                     String effectiveExpires, String effectiveServerSideEncryption,
                                      String effectiveSseKmsKeyId,
                                      CopyObjectOptions effectiveOptions, ChecksumAlgorithm copyChecksumAlgorithm,
                                      Map<String, String> effectiveTags) {
@@ -8379,6 +8396,8 @@ public class S3Service implements Resettable, ResourceProvider {
                         .withContentEncoding(effectiveContentEncoding)
                         .withContentDisposition(effectiveContentDisposition)
                         .withCacheControl(effectiveCacheControl)
+                        .withContentLanguage(effectiveContentLanguage)
+                        .withExpires(effectiveExpires)
                         .withServerSideEncryption(effectiveServerSideEncryption)
                         .withSseKmsKeyId(effectiveSseKmsKeyId)
                         .withSseCustomerAlgorithm(effectiveOptions.getSseCustomerAlgorithm())

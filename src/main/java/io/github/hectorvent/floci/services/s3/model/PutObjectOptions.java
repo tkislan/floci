@@ -11,6 +11,8 @@ public class PutObjectOptions {
     private String legalHoldStatus;
     private String contentDisposition;
     private String cacheControl;
+    private String contentLanguage;
+    private String expires;
     private String serverSideEncryption;
     private String sseKmsKeyId;
     private String sseCustomerAlgorithm;
@@ -47,6 +49,12 @@ public class PutObjectOptions {
 
     public String getCacheControl() { return cacheControl; }
     public PutObjectOptions withCacheControl(String cacheControl) { this.cacheControl = cacheControl; return this; }
+
+    public String getContentLanguage() { return contentLanguage; }
+    public PutObjectOptions withContentLanguage(String contentLanguage) { this.contentLanguage = contentLanguage; return this; }
+
+    public String getExpires() { return expires; }
+    public PutObjectOptions withExpires(String expires) { this.expires = expires; return this; }
 
     public String getServerSideEncryption() { return serverSideEncryption; }
     public PutObjectOptions withServerSideEncryption(String serverSideEncryption) { this.serverSideEncryption = serverSideEncryption; return this; }

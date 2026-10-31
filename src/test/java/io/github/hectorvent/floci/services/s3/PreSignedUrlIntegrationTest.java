@@ -207,6 +207,8 @@ class PreSignedUrlIntegrationTest {
             .contentType("text/plain")
             .header("Content-Disposition", "inline")
             .header("Cache-Control", "max-age=60")
+            .header("Content-Language", "de-DE")
+            .header("Expires", "Fri, 01 Jan 2100 00:00:00 GMT")
         .when()
             .put("/" + BUCKET + "/disposition-file.txt")
         .then()
@@ -261,7 +263,9 @@ class PreSignedUrlIntegrationTest {
         .then()
             .statusCode(200)
             .header("Content-Disposition", equalTo("inline"))
-            .header("Cache-Control", equalTo("max-age=60"));
+            .header("Cache-Control", equalTo("max-age=60"))
+            .header("Content-Language", equalTo("de-DE"))
+            .header("Expires", equalTo("Fri, 01 Jan 2100 00:00:00 GMT"));
     }
 
     @Test
@@ -314,7 +318,9 @@ class PreSignedUrlIntegrationTest {
         .then()
             .statusCode(206)
             .header("Content-Disposition", equalTo("inline"))
-            .header("Cache-Control", equalTo("max-age=60"));
+            .header("Cache-Control", equalTo("max-age=60"))
+            .header("Content-Language", equalTo("de-DE"))
+            .header("Expires", equalTo("Fri, 01 Jan 2100 00:00:00 GMT"));
     }
 
     @Test

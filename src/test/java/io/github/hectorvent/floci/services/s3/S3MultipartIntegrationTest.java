@@ -1563,12 +1563,14 @@ class S3MultipartIntegrationTest {
 
     @Test
     @Order(40)
-    void completedObjectKeepsContentEncodingAndCacheControl() {
+    void completedObjectKeepsTheObjectHeadersItsUploadWasCreatedWith() {
         String key = "encoded-multipart.bin";
         String encodedUploadId = given()
             .header("Content-Type", "text/plain")
             .header("Content-Encoding", "gzip,aws-chunked")
             .header("Cache-Control", "no-cache")
+            .header("Content-Language", "de-DE")
+            .header("Expires", "Tue, 01 Dec 2099 16:00:00 GMT")
         .when()
             .post("/" + BUCKET + "/" + key + "?uploads")
         .then()
@@ -1599,6 +1601,8 @@ class S3MultipartIntegrationTest {
             .statusCode(200)
             .header("Content-Encoding", equalTo("gzip"))
             .header("Cache-Control", equalTo("no-cache"))
+            .header("Content-Language", equalTo("de-DE"))
+            .header("Expires", equalTo("Tue, 01 Dec 2099 16:00:00 GMT"))
             // RestAssured appends a default charset to the Content-Type it sends
             .header("Content-Type", startsWith("text/plain"));
 

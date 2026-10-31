@@ -349,9 +349,13 @@ class S3MultipartServiceTest {
     }
 
     @Test
-    void completeMultipartUploadAppliesContentEncodingAndCacheControl() {
+    void completeMultipartUploadAppliesTheUploadsObjectHeaders() {
         MultipartUpload upload = s3Service.initiateMultipartUpload("test-bucket", "encoded.bin", "text/plain",
-                null, null, new PutObjectOptions().withContentEncoding("gzip").withCacheControl("no-cache"));
+                null, null, new PutObjectOptions()
+                        .withContentEncoding("gzip")
+                        .withCacheControl("no-cache")
+                        .withContentLanguage("de-DE")
+                        .withExpires("Tue, 01 Dec 2099 16:00:00 GMT"));
         s3Service.uploadPart("test-bucket", "encoded.bin", upload.getUploadId(), 1, "part1".getBytes());
 
         s3Service.completeMultipartUpload("test-bucket", "encoded.bin", upload.getUploadId(), List.of(1), null, null);
@@ -359,6 +363,8 @@ class S3MultipartServiceTest {
         S3Object object = s3Service.headObject("test-bucket", "encoded.bin");
         assertEquals("gzip", object.getContentEncoding());
         assertEquals("no-cache", object.getCacheControl());
+        assertEquals("de-DE", object.getContentLanguage());
+        assertEquals("Tue, 01 Dec 2099 16:00:00 GMT", object.getExpires());
     }
 
     @Test
