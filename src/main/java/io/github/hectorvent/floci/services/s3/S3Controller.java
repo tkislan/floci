@@ -4030,10 +4030,10 @@ public class S3Controller {
         S3Object obj = s3Service.postObject(bucket, key, fileData, objectContentType,
                 metadata.isEmpty() ? null : metadata,
                 new PutObjectOptions()
-                        .withCacheControl(lcFields.get("cache-control"))
-                        .withContentDisposition(lcFields.get("content-disposition"))
-                        .withContentEncoding(lcFields.get("content-encoding"))
-                        .withExpires(lcFields.get("expires")));
+                        .withCacheControl(headerSafeFormField(lcFields, "cache-control"))
+                        .withContentDisposition(headerSafeFormField(lcFields, "content-disposition"))
+                        .withContentEncoding(headerSafeFormField(lcFields, "content-encoding"))
+                        .withExpires(headerSafeFormField(lcFields, "expires")));
         LOG.infov("Presigned POST upload: {0}/{1} ({2} bytes)", bucket, key, fileData.length);
 
         String xml = new XmlBuilder()
@@ -4052,6 +4052,21 @@ public class S3Controller {
             response.header("x-amz-version-id", obj.getVersionId());
         }
         return response.build();
+    }
+
+    /**
+     * The field is replayed as a response header on every GET and HEAD of the object, and Vert.x
+     * refuses to send a control character other than tab, so storing one would fail them all.
+     * Vert.x does send an obs-fold, but RFC 9112 forbids a server to generate one.
+     */
+    private static String headerSafeFormField(Map<String, String> lcFields, String name) {
+        String value = lcFields.get(name);
+        if (value != null && value.chars().anyMatch(c -> c == 0x7F || (c < 0x20 && c != '\t'))) {
+            throw new AwsException("InvalidArgument",
+                    "Bucket POST field '" + name + "' contains a character that is not allowed in an HTTP header value.",
+                    400);
+        }
+        return value;
     }
 
     /**

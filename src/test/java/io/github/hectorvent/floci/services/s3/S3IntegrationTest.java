@@ -2054,6 +2054,32 @@ class S3IntegrationTest {
         given().delete("/" + bucket);
     }
 
+    @Test
+    @Order(216)
+    void emptyExpiresHeaderIsTreatedAsAbsent() {
+        String bucket = "empty-expires-bucket";
+        given().put("/" + bucket).then().statusCode(200);
+
+        given()
+            .contentType("text/plain")
+            .header("Expires", "")
+            .body("x")
+        .when()
+            .put("/" + bucket + "/empty.txt")
+        .then()
+            .statusCode(200);
+
+        given()
+        .when()
+            .head("/" + bucket + "/empty.txt")
+        .then()
+            .statusCode(200)
+            .header("Expires", nullValue());
+
+        given().delete("/" + bucket + "/empty.txt");
+        given().delete("/" + bucket);
+    }
+
     // --- Server-Side Encryption header preservation ---
 
     @Test

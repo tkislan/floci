@@ -7,12 +7,17 @@ import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
+import java.util.Locale;
+import java.util.stream.Stream;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -742,6 +747,85 @@ class S3PresignedPostIntegrationTest {
             .header("Expires", equalTo("Tue, 01 Dec 2099 16:00:00 GMT"));
     }
 
+    static Stream<Arguments> headerFieldsWithAControlCharacter() {
+        return Stream.of(
+                Arguments.of("Cache-Control", "no-cache\r\nX-Injected: yes"),
+                Arguments.of("Content-Disposition", "inline\u0000"),
+                Arguments.of("Content-Encoding", "gzip\u007f"),
+                // An obs-fold passes Vert.x's own header check, but RFC 9112 forbids a server to send it.
+                Arguments.of("Expires", "Tue,\r\n 01 Dec 2099 16:00:00 GMT"));
+    }
+
+    @ParameterizedTest
+    @Order(99)
+    @MethodSource("headerFieldsWithAControlCharacter")
+    void presignedPostRejectsAControlCharacterInAHeaderField(String field, String value) {
+        String lowercaseField = field.toLowerCase(Locale.ROOT);
+        String key = "uploads/control-" + lowercaseField + ".txt";
+
+        given()
+            .multiPart("key", key)
+            .multiPart(field, value)
+            .multiPart("file", "control.txt", "control".getBytes(StandardCharsets.UTF_8), "text/plain")
+        .when()
+            .post("/" + BUCKET)
+        .then()
+            .statusCode(400)
+            .body(hasXPath("/Error/Code", equalTo("InvalidArgument")))
+            .body(hasXPath("/Error/Message", equalTo("Bucket POST field '" + lowercaseField
+                    + "' contains a character that is not allowed in an HTTP header value.")));
+
+        given()
+        .when()
+            .head("/" + BUCKET + "/" + key)
+        .then()
+            .statusCode(404);
+    }
+
+    @Test
+    @Order(99)
+    void presignedPostKeepsATabInAHeaderField() {
+        String key = "uploads/with-tab.txt";
+
+        given()
+            .multiPart("key", key)
+            .multiPart("Cache-Control", "no-cache,\tmax-age=0")
+            .multiPart("file", "with-tab.txt", "tab".getBytes(StandardCharsets.UTF_8), "text/plain")
+        .when()
+            .post("/" + BUCKET)
+        .then()
+            .statusCode(204);
+
+        given()
+        .when()
+            .head("/" + BUCKET + "/" + key)
+        .then()
+            .statusCode(200)
+            .header("Cache-Control", equalTo("no-cache,\tmax-age=0"));
+    }
+
+    @Test
+    @Order(99)
+    void presignedPostTreatsABlankExpiresAsAbsent() {
+        String key = "uploads/blank-expires.txt";
+
+        given()
+            .multiPart("key", key)
+            .multiPart("Expires", " ")
+            .multiPart("file", "blank-expires.txt", "blank".getBytes(StandardCharsets.UTF_8), "text/plain")
+        .when()
+            .post("/" + BUCKET)
+        .then()
+            .statusCode(204);
+
+        given()
+        .when()
+            .head("/" + BUCKET + "/" + key)
+        .then()
+            .statusCode(200)
+            .header("Expires", nullValue());
+    }
+
     @Test
     @Order(100)
     void cleanupBucket() {
@@ -757,6 +841,8 @@ class S3PresignedPostIntegrationTest {
         given().delete("/" + BUCKET + "/uploads/capital-p-ok.txt");
         given().delete("/" + BUCKET + "/uploads/with-metadata.txt");
         given().delete("/" + BUCKET + "/uploads/with-headers.txt");
+        given().delete("/" + BUCKET + "/uploads/with-tab.txt");
+        given().delete("/" + BUCKET + "/uploads/blank-expires.txt");
 
         given()
         .when()

@@ -936,7 +936,9 @@ public class S3Service implements Resettable, ResourceProvider {
         object.setContentDisposition(effectiveOptions.getContentDisposition());
         object.setCacheControl(effectiveOptions.getCacheControl());
         object.setContentLanguage(effectiveOptions.getContentLanguage());
-        object.setExpires(effectiveOptions.getExpires());
+        // A blank Expires is not a date: botocore and the JS SDK v3 fail to read an object that returns one.
+        String expires = effectiveOptions.getExpires();
+        object.setExpires(expires == null || expires.isBlank() ? null : expires);
         object.setServerSideEncryption(normalizedServerSideEncryption);
         object.setSseKmsKeyId("aws:kms".equals(normalizedServerSideEncryption)
                 ? effectiveOptions.getSseKmsKeyId()
